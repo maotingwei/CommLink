@@ -54,8 +54,10 @@ Write-Host "[信息] WDK Include: $INC"
 Write-Host "[信息] WDK Lib    : $LIB"
 
 # ---- 3. 编译 + 链接(放在同一个 cmd 会话里继承 vcvarsall 环境) ----
-$clLine = '/nologo /c /Cx /GF /Gw /GS- /W4 /wd4100 /wd4189 /wd4127 ' +
-          '/DAMD64=1 /D_WIN64=1 /DWIN32=100 /D_NT1X_=100 /DWINNT=1 ' +
+# 架构宏必须用 _AMD64_(带下划线):ntdef.h 靠它判断目标架构,否则报 C1189 "No Target Architecture"
+# 同时保留 AMD64 等旧宏以兼容不同 WDK 版本
+$clLine = '/nologo /c /GF /Gw /GS- /W4 /wd4100 /wd4189 /wd4127 ' +
+          '/D_AMD64_=1 /DAMD64=1 /D_WIN64=100 /DWIN32=100 /D_NT1X_=100 /DWINNT=1 ' +
           '/I"' + $INC + '\km" /I"' + $INC + '\shared" ' +
           '/FoCommLink.obj CommLink.c'
 # 注意:现代 WDK(Win10 之后)已无 hal.lib,HAL 功能并入 ntoskrnl.lib,链接它反而报 LNK1104
