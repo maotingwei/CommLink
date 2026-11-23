@@ -51,17 +51,27 @@ $INC = Join-Path $kitRoot "Include\$($incDir.Name)"
 $LIB = Join-Path $kitRoot "Lib\$($libDir.Name)"
 Write-Host "[信息] WDK Include: $INC"
 
-# 签名工具 inf2cat / signtool:在 Windows Kits\10\bin\<ver>\x64 下
+# 签名工具探测:
+#   inf2cat 传统上只在 bin\<ver>\x86\ 下(32位工具),signtool 则 x86/x64 都有
+#   这里在 bin 下递归查找,取最新版本目录,并按架构挑选
 $binRoot = Join-Path $kitRoot "bin"
-$binDir = Get-ChildItem $binRoot -Directory -ErrorAction SilentlyContinue |
-    Where-Object { Test-Path (Join-Path $_.FullName "x64\inf2cat.exe") } |
-    Sort-Object Name -Descending | Select-Object -First 1
-if (-not $binDir) { Fail "未找到 inf2cat.exe(Windows Kits\10\bin\<ver>\x64)" }
-$BIN = Join-Path $binDir.FullName "x64"
-$inf2cat = Join-Path $BIN "inf2cat.exe"
-$signtool = Join-Path $BIN "signtool.exe"
-if (-not (Test-Path $signtool)) { Fail "未找到 signtool.exe: $signtool" }
-Write-Host "[信息] 签名工具目录: $BIN"
+$verDir = Get-ChildItem $binRoot -Directory -ErrorAction SilentlyContinue |
+    Where-Object {
+        (Test-Path (Join-Path $_.FullName "x86\inf2cat.exe")) -or
+        (Test-Path (Join-Path $_.FullName "x64\inf2cat.exe"))
+    } | Sort-Object Name -Descending | Select-Object -First 1
+if (-not $verDir) { Fail "未找到 inf2cat.exe(在 Windows Kits\10\bin\<ver>\{x86,x64} 中递归查找)" }
+
+# inf2cat:x86 优先(最常见),退而求其次 x64
+$inf2cat = Join-Path $verDir.FullName "x86\inf2cat.exe"
+if (-not (Test-Path $inf2cat)) { $inf2cat = Join-Path $verDir.FullName "x64\inf2cat.exe" }
+
+# signtool:x64 优先,退回 x86
+$signtool = Join-Path $verDir.FullName "x64\signtool.exe"
+if (-not (Test-Path $signtool)) { $signtool = Join-Path $verDir.FullName "x86\signtool.exe" }
+if (-not (Test-Path $signtool)) { Fail "未找到 signtool.exe" }
+Write-Host "[信息] inf2cat : $inf2cat"
+Write-Host "[信息] signtool: $signtool"
 
 $buildLog = Join-Path $PSScriptRoot "pnp_build_log.txt"
 
