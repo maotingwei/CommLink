@@ -16,24 +16,44 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 编译驱动 (自适应脚本)
+      - name: 编译 Legacy 驱动 (自适应脚本)
         shell: pwsh
         working-directory: ./driver
         run: ./build_driver.ps1
+
+      - name: 编译并签名 PnP 驱动 (含 INF/CAT/证书)
+        shell: pwsh
+        working-directory: ./driver
+        run: ./build_pnp.ps1
 
       - name: 上传编译日志(无论成功失败)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: CommLink-build-log
-          path: driver/build_log.txt
+          path: |
+            driver/build_log.txt
+            driver/pnp_build_log.txt
           if-no-files-found: warn
 
-      - name: 上传驱动产物
+      - name: 上传 Legacy 驱动产物
         uses: actions/upload-artifact@v4
         with:
           name: CommLink-sys-x64
           path: driver/CommLink.sys
+          if-no-files-found: error
+
+      - name: 上传 PnP 驱动完整包
+        uses: actions/upload-artifact@v4
+        with:
+          name: CommLink-PnP-x64
+          path: |
+            driver/CommLinkPnp.sys
+            driver/CommLinkPnp.inf
+            driver/CommLinkPnp.cat
+            driver/CommLinkTest.cer
+            driver/mkroot.exe
+            install_pnp.bat
           if-no-files-found: error
 
       - name: 上传后端与前端(方便一并下载)

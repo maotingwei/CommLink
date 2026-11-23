@@ -1,0 +1,65 @@
+; CommLinkPnp.inf
+; =====================================================================
+; CommLink 虚拟串口 PnP 驱动安装信息文件
+; 安装后设备出现在"端口 (COM 和 LPT)"分类,显示为:
+;   CommLink Virtual Serial Port (COMn)
+; COM 号由驱动的 service Parameters\ComPort 决定(默认 COM8)
+; =====================================================================
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=Ports
+ClassGuid={4D36E978-E325-11CE-BFC1-08002BE10318}
+Provider=%ProviderName%
+DriverVer=11/23/2026,1.0.0.0
+CatalogFile=CommLinkPnp.cat
+PnpLockdown=1
+
+[SourceDisksNames]
+1=%DiskName%,,
+
+[SourceDisksFiles]
+CommLinkPnp.sys=1
+
+[DestinationDirs]
+DefaultDestDir=12
+
+[Manufacturer]
+%ProviderName%=CommLinkModels,NTamd64
+
+[CommLinkModels.NTamd64]
+%DeviceName%=CommLink_Device,Root\CommLink
+
+; ---------------------------------------------------------------------
+; 设备实例节
+; ---------------------------------------------------------------------
+[CommLink_Device]
+AddReg=CommLink_Device.AddReg
+
+[CommLink_Device.AddReg]
+; 预设 PortName,驱动 START_DEVICE 时会按 ComPort 参数覆盖
+HKR,"Device Parameters","PortName",0,"COM8"
+
+; ---------------------------------------------------------------------
+; 服务节
+; ---------------------------------------------------------------------
+[CommLink_Device.Services]
+AddService=CommLinkPnp,0x00000002,CommLink_Service
+
+[CommLink_Service]
+DisplayName=%ServiceName%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%12%\CommLinkPnp.sys
+LoadOrderGroup=Extended Base
+
+[CommLink_Service.AddReg]
+; ComPort: REG_DWORD,虚拟串口号(1-255)
+HKR,"Parameters","ComPort",0x00010001,8
+
+[Strings]
+ProviderName="CommLink"
+DeviceName="CommLink Virtual Serial Port"
+ServiceName="CommLink Virtual Serial Port Driver"
+DiskName="CommLink Driver Disk"

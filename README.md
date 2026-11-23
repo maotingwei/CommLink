@@ -5,6 +5,38 @@
 
 ---
 
+## ⭐ PnP 版驱动（让虚拟串口出现在设备管理器）
+
+项目提供**两版驱动**，数据功能完全相同，区别只在安装方式与设备管理器可见性：
+
+| 版本 | 源文件 | 安装方式 | 设备管理器 | 符号链接 |
+|---|---|---|---|---|
+| **PnP 版（推荐）** | `driver/CommLinkPnp.c` | INF + 证书 + Root 设备 | ✅ 出现在"端口(COM和LPT)"，显示 `CommLink Virtual Serial Port (COM8)` | `\\.\COM8` + `\\.\CommLinkCtl` |
+| Legacy 版 | `driver/CommLink.c` | `sc create` + 注册表 | ❌ 不可见 | `\\.\COM8` + `\\.\CommLinkCtl` |
+
+两版对用户态 `app.py` 完全兼容（控制设备 `\\.\CommLinkCtl` 不变）。
+
+**PnP 版使用步骤（CI 已自动编译签名）：**
+
+1. GitHub Actions 运行完成后，下载产物 **`CommLink-PnP-x64`**，解压全部文件到同一目录。
+2. 管理员身份打开 CMD，先开启测试签名模式并**重启电脑**：
+   ```bat
+   install_pnp.bat testsigning on
+   ```
+3. 重启后再次管理员运行：
+   ```bat
+   install_pnp.bat install 8
+   ```
+   （`8` 为想要的 COM 号。脚本会自动导入自签证书、装驱动、创建 Root 设备节点。）
+4. 打开**设备管理器 → 端口(COM和LPT)**，应看到 `CommLink Virtual Serial Port (COM8)`。
+5. 之后照常运行 `start_server.bat` 启动后端与网页 UI。
+
+常用命令：`install_pnp.bat com 12`（改串口号）、`install_pnp.bat uninstall`（卸载）、`install_pnp.bat status`（状态）、`install_pnp.bat testsigning off`（收尾关闭测试模式）。
+
+> 自签证书仅用于开发测试；量产需购买 EV 证书并用 Azure Trusted Signing / 硬件密钥签名。详见第 3 节。
+
+---
+
 ## 0. 如何编译驱动（三种方案，任选其一）
 
 本机当前**未安装 WDK**，无法直接编译 `.sys`。以下三种方案都可拿到 `CommLink.sys`：
@@ -51,8 +83,8 @@ powershell -ExecutionPolicy Bypass -File build_driver.ps1
 
 | 模块 | 状态 | 说明 |
 |---|---|---|
-| 内核虚拟串口驱动 | ✅ 源码完成 | Legacy WDM，创建 COM 口 + 控制设备，双向环形缓冲 |
-| 驱动编译/安装脚本 | ✅ 完成 | 检测 WDK、编译、sc 安装/卸载 |
+| 内核虚拟串口驱动 | ✅ 源码完成 | Legacy WDM + **PnP WDM** 两版，创建 COM 口 + 控制设备，双向环形缓冲 |
+| 驱动编译/安装脚本 | ✅ 完成 | 检测 WDK、编译、签名、INF/CAT、sc 安装(Legacy) / INF 安装(PnP) |
 | Python 后端服务 | ✅ 完成 | ctypes 直连驱动、WebSocket 推送、日志、过滤、搜索、TCP 预留 |
 | 网页 UI | ✅ 完成 | 配置、实时 TX/RX、过滤规则、搜索、手动注入 RX |
 | **驱动 `.sys` 二进制** | ⚠️ 需你在有 WDK 的机器编译 | 本机未装 WDK，无法编译内核驱动（见第 3 节） |
