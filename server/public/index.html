@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CommLink - 虚拟串口桥接控制台</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">CL</span>
+    <div>
+      <h1>CommLink</h1>
+      <p>虚拟串口桥接控制台</p>
+    </div>
+  </div>
+  <div class="status-bar">
+    <span class="status-item"><span id="dot-driver" class="dot offline"></span>驱动 <b id="st-driver">未连接</b></span>
+    <span class="status-item"><span id="dot-ws" class="dot offline"></span>前端 <b id="st-ws">连接中</b></span>
+    <span class="status-item">TX <b id="st-tx">0</b></span>
+    <span class="status-item">RX <b id="st-rx">0</b></span>
+    <span class="status-item">已过滤 <b id="st-filtered">0</b></span>
+  </div>
+</header>
+
+<main class="layout">
+  <!-- 左侧配置 -->
+  <aside class="panel config-panel">
+    <h2>配置</h2>
+
+    <section>
+      <h3>板子通信 (TCP 客户端)</h3>
+      <label class="switch-row">
+        <input type="checkbox" id="board-enabled"> 启用板子连接
+      </label>
+      <div class="field"><label>板子 IP</label><input id="board-host" type="text" value="192.168.1.100"></div>
+      <div class="field"><label>端口</label><input id="board-port" type="number" value="5000"></div>
+      <button id="btn-save-board" class="btn primary">保存板子配置</button>
+      <p class="hint">板子作为 TCP 服务器时在此填写其 IP/端口。物理串口协议将在后续版本接入。</p>
+    </section>
+
+    <section>
+      <h3>过滤规则 <span class="badge">命中则不存储/不显示</span></h3>
+      <label class="switch-row">
+        <input type="checkbox" id="filter-enabled"> 启用过滤
+      </label>
+      <div class="field">
+        <label>匹配方式</label>
+        <select id="filter-mode">
+          <option value="contains">字符包含</option>
+          <option value="regex">正则表达式</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>作用方向</label>
+        <div class="checks">
+          <label><input type="checkbox" id="dir-tx" checked> TX</label>
+          <label><input type="checkbox" id="dir-rx" checked> RX</label>
+        </div>
+      </div>
+      <div class="field">
+        <label>规则(每行一条)</label>
+        <textarea id="filter-patterns" rows="4" placeholder="例如: AT+&#10;比如 HEX: 0D0A"></textarea>
+      </div>
+      <button id="btn-save-filter" class="btn primary">保存过滤规则</button>
+    </section>
+
+    <section>
+      <h3>手动注入 RX</h3>
+      <p class="hint">模拟板子向虚拟串口发送数据(串口助手将收到)。</p>
+      <div class="field">
+        <textarea id="inject-text" rows="3" placeholder="输入文本或 HEX"></textarea>
+      </div>
+      <div class="row">
+        <label class="switch-row"><input type="checkbox" id="inject-hex"> HEX 模式</label>
+        <button id="btn-inject" class="btn">发送到串口助手</button>
+      </div>
+    </section>
+
+    <section>
+      <h3>日志</h3>
+      <button id="btn-purge" class="btn ghost">清空驱动缓冲</button>
+      <button id="btn-clear-history" class="btn ghost">清空显示</button>
+      <p class="hint" id="log-path">LOG: logs/commlink.log</p>
+    </section>
+  </aside>
+
+  <!-- 右侧数据区 -->
+  <section class="panel data-panel">
+    <div class="toolbar">
+      <h2>数据监视</h2>
+      <div class="toolbar-controls">
+        <input id="search" type="text" placeholder="搜索 HEX / ASCII / 方向 ..." >
+        <button id="btn-search" class="btn">搜索</button>
+        <label class="switch-row"><input type="checkbox" id="auto-scroll" checked> 自动滚动</label>
+        <label class="switch-row"><input type="checkbox" id="show-tx" checked> TX</label>
+        <label class="switch-row"><input type="checkbox" id="show-rx" checked> RX</label>
+      </div>
+    </div>
+    <div id="stream" class="stream"></div>
+    <div class="footer">
+      <span id="search-info">显示全部记录</span>
+      <span>共 <b id="total-count">0</b> 条</span>
+    </div>
+  </section>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>

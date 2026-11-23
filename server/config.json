@@ -1,0 +1,38 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8765
+  },
+  "driver": {
+    "control_device": "\\\\.\\CommLinkCtl",
+    "poll_interval_ms": 20,
+    "read_chunk": 65536
+  },
+  "board": {
+    "enabled": false,
+    "type": "tcp_client",
+    "host": "192.168.1.100",
+    "port": 5000,
+    "auto_reconnect": true,
+    "reconnect_interval_ms": 3000
+  },
+  "log": {
+    "enabled": true,
+    "dir": "logs",
+    "file": "commlink.log",
+    "max_bytes": 10485760
+  },
+  "filter": {
+    "enabled": true,
+    "mode": "contains",
+    "patterns": [],
+    "apply_to": [
+      "TX",
+      "RX"
+    ]
+  },
+  "display": {
+    "max_history": 500,
+    "hex_max_len": 4096
+  }
+}

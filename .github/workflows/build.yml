@@ -1,0 +1,38 @@
+name: Build CommLink Driver
+
+# 触发条件:推送代码 / 手动点击 / PR
+on:
+  push:
+    branches: [ main, master, "*" ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-driver:
+    # windows-2022 开箱预装 WDK 22H2 + VS2022(微软官方驱动示例同款环境)
+    runs-on: windows-2022
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 编译驱动 (自适应脚本)
+        shell: pwsh
+        working-directory: ./driver
+        run: ./build_driver.ps1
+
+      - name: 上传驱动产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: CommLink-sys-x64
+          path: driver/CommLink.sys
+          if-no-files-found: error
+
+      - name: 上传后端与前端(方便一并下载)
+        uses: actions/upload-artifact@v4
+        with:
+          name: CommLink-server
+          path: |
+            server/**
+            start_server.bat
+            README.md
