@@ -123,7 +123,7 @@ BuildPortName(PWCHAR Buf, ULONG Port)
 }
 
 static ULONG
-WcslenFast(PCWCHAR S)
+WcslenFast(PCWSTR S)
 {
     ULONG n = 0;
     while (S[n] != L'\0') n++;

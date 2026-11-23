@@ -92,7 +92,7 @@ Write-Host $rawSys
 Add-Content -Path $buildLog -Value ("=== SYS BUILD ===`n" + $rawSys) -Encoding UTF8
 if ($LASTEXITCODE -ne 0) {
     foreach ($line in ($rawSys -split "`r?`n")) {
-        if ($line -match '\berror\b|\bfatal\b|LNK[0-9]+|C[0-9]{4}') {
+        if ($line -notmatch '\bwarning\b' -and $line -match 'error [A-Z][0-9]+|\bfatal\b|LNK[0-9]+') {
             $safe = $line -replace '%', '%25' -replace "`r", '' -replace "`n", ' '
             Write-Host "::error::$safe"
         }
@@ -110,7 +110,7 @@ Write-Host $rawMk
 Add-Content -Path $buildLog -Value ("=== MKROOT BUILD ===`n" + $rawMk) -Encoding UTF8
 if ($LASTEXITCODE -ne 0) {
     foreach ($line in ($rawMk -split "`r?`n")) {
-        if ($line -match '\berror\b|\bfatal\b|LNK[0-9]+|C[0-9]{4}') {
+        if ($line -notmatch '\bwarning\b' -and $line -match 'error [A-Z][0-9]+|\bfatal\b|LNK[0-9]+') {
             $safe = $line -replace '%', '%25' -replace "`r", '' -replace "`n", ' '
             Write-Host "::error::$safe"
         }
