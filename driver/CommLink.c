@@ -600,6 +600,7 @@ ReadComPortFromRegistry(VOID)
     HANDLE hKey = NULL;
     OBJECT_ATTRIBUTES oa;
     UNICODE_STRING subKey;
+    UNICODE_STRING valueName;
     UCHAR raw[sizeof(KEY_VALUE_PARTIAL_INFORMATION) + sizeof(ULONG)];
     PKEY_VALUE_PARTIAL_INFORMATION pvi = (PKEY_VALUE_PARTIAL_INFORMATION)raw;
     ULONG result = 0, len;
@@ -609,8 +610,9 @@ ReadComPortFromRegistry(VOID)
     InitializeObjectAttributes(&oa, &subKey, OBJ_CASE_INSENSITIVE, NULL, NULL);
     if (!NT_SUCCESS(ZwOpenKey(&hKey, KEY_READ, &oa))) return 8; // 默认 COM8
 
+    RtlInitUnicodeString(&valueName, COMMLINK_REG_COMPORT);
     if (NT_SUCCESS(ZwQueryValueKey(hKey,
-            RTL_CONSTANT_STRING(COMMLINK_REG_COMPORT),
+            &valueName,
             KeyValuePartialInformation, raw, sizeof(raw), &len))) {
         if (pvi->Type == REG_DWORD && pvi->DataLength >= sizeof(ULONG)) {
             result = *(PULONG)pvi->Data;
