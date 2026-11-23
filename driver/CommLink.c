@@ -161,7 +161,7 @@ static VOID
 CompleteOnePendingRead(PDEVICE_EXTENSION Shared)
 {
     PIRP    Irp = NULL;
-    KIRQL   cancelIrql, irql;
+    KIRQL   cancelIrql;
     ULONG   copied = 0;
 
     IoAcquireCancelSpinLock(&cancelIrql);
@@ -200,7 +200,7 @@ CompleteOnePendingRead(PDEVICE_EXTENSION Shared)
 static VOID
 CL_CancelPendingReads(PDEVICE_EXTENSION Shared)
 {
-    KIRQL cancelIrql, irql;
+    KIRQL cancelIrql;
     IoAcquireCancelSpinLock(&cancelIrql);
     KeAcquireSpinLockAtDpcLevel(&Shared->PendingLock);
 
@@ -507,11 +507,14 @@ HandleControlIoctl(PDEVICE_EXTENSION Shared, PIRP Irp, ULONG code)
         st.RxLength = Shared->RxRing.Length;
         st.RxCapacity = Shared->RxRing.Capacity;
         KeReleaseSpinLock(&Shared->RxRing.Lock, irql);
-        KeAcquireSpinLock(&Shared->PendingLock, &irql);
-        st.PendingReads = 0;
-        for (PLIST_ENTRY le = Shared->PendingReads.Flink;
-             le != &Shared->PendingReads; le = le->Flink) st.PendingReads++;
-        KeReleaseSpinLock(&Shared->PendingLock, irql);
+        {
+            PLIST_ENTRY le;
+            KeAcquireSpinLock(&Shared->PendingLock, &irql);
+            st.PendingReads = 0;
+            for (le = Shared->PendingReads.Flink;
+                 le != &Shared->PendingReads; le = le->Flink) st.PendingReads++;
+            KeReleaseSpinLock(&Shared->PendingLock, irql);
+        }
         st.TotalTxBytes = Shared->TotalTxBytes;
         st.TotalRxBytes = Shared->TotalRxBytes;
         if (outLen >= sizeof(st)) { RtlCopyMemory(buf, &st, sizeof(st)); info = sizeof(st); }
