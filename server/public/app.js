@@ -197,10 +197,84 @@
     $(id).addEventListener("change", () => renderAll());
   });
 
+  // ---------- 虚拟串口管理 ----------
+  function drvLog(msg, cls) {
+    const el = $("drv-log");
+    if (cls) {
+      const span = document.createElement("span");
+      span.className = cls;
+      span.textContent = msg + "\n";
+      el.appendChild(span);
+    } else {
+      el.textContent += msg + "\n";
+    }
+    el.scrollTop = el.scrollHeight;
+  }
+  function setBadge(text, cls) {
+    const b = $("drv-badge");
+    b.textContent = text;
+    b.className = "drv-badge " + cls;
+  }
+  const yn = (v) => v ? '<span class="yes">是</span>' : '<span class="no">否</span>';
+
+  async function pollDriverStatus() {
+    try {
+      const r = await api("/api/driver/status");
+      const d = r.data;
+      const installed = d.device_present;
+      const connected = $("st-driver").textContent === "已连接";
+      if (installed && connected) setBadge("串口已就绪", "ready");
+      else if (installed) setBadge("设备已装/待连接", "waiting");
+      else setBadge("未安装", "error");
+
+      const com = d.com_port || parseInt($("drv-com").value, 10) || 8;
+      if (d.com_port && document.activeElement !== $("drv-com")) $("drv-com").value = d.com_port;
+      $("drv-details").innerHTML =
+        '管理员权限: ' + yn(d.admin) + '<br>' +
+        '测试签名模式: ' + yn(d.testsigning) + '<br>' +
+        '设备节点: ' + yn(installed) + '<br>' +
+        '驱动服务: ' + yn(d.service_running) + '<br>' +
+        '当前串口号: <span class="k">COM' + com + '</span>' +
+        (d.missing_files && d.missing_files.length ? '<br><span class="no">缺少内嵌文件: ' + esc(d.missing_files.join(", ")) + '</span>' : '');
+    } catch (e) { /* ignore */ }
+  }
+
+  async function drvAction(path, body, label, btn) {
+    if (btn) { btn.disabled = true; }
+    drvLog("▶ " + label + " ...");
+    try {
+      const r = await postJSON(path, body || {});
+      if (r.steps) {
+        r.steps.forEach(s => drvLog((s.ok ? "  [OK] " : "  [!!] ") + s.msg, s.ok ? "ok" : "fail"));
+      }
+      if (r.msg) drvLog("  " + r.msg, r.ok ? "ok" : "fail");
+      if (r.error) drvLog("  [错误] " + r.error, "fail");
+      drvLog(r.ok ? "✔ " + label + "成功" : "✘ " + label + "未完全成功", r.ok ? "ok" : "fail");
+      if (r.need_reboot) drvLog("⚠ 请重启电脑,然后重新打开本程序再次点击生成。", "fail");
+      await pollDriverStatus();
+      await pollStatus();
+    } catch (e) {
+      drvLog("  [异常] " + e, "fail");
+    } finally {
+      if (btn) { btn.disabled = false; }
+    }
+  }
+
+  $("btn-drv-install").onclick = (e) => {
+    const com = parseInt($("drv-com").value, 10) || 8;
+    drvAction("/api/driver/install", { com }, "生成 COM" + com, e.currentTarget);
+  };
+  $("btn-drv-uninstall").onclick = (e) => drvAction("/api/driver/uninstall", {}, "卸载设备", e.currentTarget);
+  $("btn-drv-reconnect").onclick = (e) => drvAction("/api/driver/reconnect", {}, "重连驱动", e.currentTarget);
+  $("btn-drv-ts-on").onclick = (e) => drvAction("/api/driver/testsigning", { on: true }, "开启测试签名", e.currentTarget);
+  $("btn-drv-ts-off").onclick = (e) => drvAction("/api/driver/testsigning", { on: false }, "关闭测试签名", e.currentTarget);
+
   // ---------- 启动 ----------
   connectWS();
   loadConfig();
   loadHistory();
   pollStatus();
+  pollDriverStatus();
   setInterval(pollStatus, 2000);
+  setInterval(pollDriverStatus, 3000);
 })();

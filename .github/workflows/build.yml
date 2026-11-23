@@ -26,6 +26,21 @@ jobs:
         working-directory: ./driver
         run: ./build_pnp.ps1
 
+      - name: 设置 Python(用于打包 exe)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 打包单文件 exe(内嵌后台+网页+驱动,UAC 提权)
+        shell: pwsh
+        run: ./build_exe.ps1
+
+      - name: 打包语法检查(前后端)
+        shell: pwsh
+        run: |
+          python -m py_compile server/app.py
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
       - name: 上传编译日志(无论成功失败)
         if: always()
         uses: actions/upload-artifact@v4
@@ -34,6 +49,7 @@ jobs:
           path: |
             driver/build_log.txt
             driver/pnp_build_log.txt
+            exe_build_log.txt
           if-no-files-found: warn
 
       - name: 上传 Legacy 驱动产物
@@ -54,6 +70,13 @@ jobs:
             driver/CommLinkTest.cer
             driver/mkroot.exe
             install_pnp.bat
+          if-no-files-found: error
+
+      - name: 上传单文件 exe(点开即用)
+        uses: actions/upload-artifact@v4
+        with:
+          name: CommLink-exe
+          path: dist/CommLink.exe
           if-no-files-found: error
 
       - name: 上传后端与前端(方便一并下载)

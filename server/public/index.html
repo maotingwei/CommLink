@@ -29,6 +29,29 @@
   <aside class="panel config-panel">
     <h2>配置</h2>
 
+    <section id="sec-driver" class="driver-section">
+      <h3>虚拟串口 <span class="badge">一键生成</span></h3>
+      <div class="drv-status">
+        <span>驱动状态:</span>
+        <span id="drv-badge" class="drv-badge waiting">检测中...</span>
+      </div>
+      <div id="drv-details" class="drv-details"></div>
+      <div class="field">
+        <label>串口号 (COM)</label>
+        <input id="drv-com" type="number" value="8" min="1" max="255">
+      </div>
+      <button id="btn-drv-install" class="btn primary big">一键生成串口</button>
+      <div class="row" style="margin-top:8px">
+        <button id="btn-drv-reconnect" class="btn ghost">重连驱动</button>
+        <button id="btn-drv-uninstall" class="btn ghost">卸载设备</button>
+      </div>
+      <div class="row" style="margin-top:4px">
+        <button id="btn-drv-ts-on" class="btn ghost">开测试签名</button>
+        <button id="btn-drv-ts-off" class="btn ghost">关测试签名</button>
+      </div>
+      <pre id="drv-log" class="drv-log">就绪。首次使用请先点"一键生成串口",按提示开启测试签名并重启。</pre>
+    </section>
+
     <section>
       <h3>板子通信 (TCP 客户端)</h3>
       <label class="switch-row">

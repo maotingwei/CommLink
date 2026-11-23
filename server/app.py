@@ -33,14 +33,29 @@ import asyncio
 import struct
 import hashlib
 import base64
+import re
+import subprocess
+import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# ---------------------------------------------------------------------------
+# 运行路径适配:
+#   - 源码运行: RES_DIR=BASE_DIR=server/,驱动产物在 ../driver/
+#   - PyInstaller 打包: RES_DIR=sys._MEIPASS(内嵌的 public/driver),
+#     BASE_DIR=exe 所在目录(config.json/logs 写这里,可写)
+# ---------------------------------------------------------------------------
+FROZEN = getattr(sys, "frozen", False)
+RES_DIR = getattr(sys, "_MEIPASS", None) or os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(sys.executable) if FROZEN else os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 LOG_DIR = os.path.join(BASE_DIR, "logs")
-PUBLIC_DIR = os.path.join(BASE_DIR, "public")
+PUBLIC_DIR = os.path.join(RES_DIR, "public")
+DRIVER_DIR = os.path.join(RES_DIR, "driver")
+if not os.path.isdir(DRIVER_DIR):  # 源码模式回退到项目根 driver 目录
+    DRIVER_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "driver"))
+CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 # ---------------------------------------------------------------------------
 # Windows IOCTL 定义(与 driver/CommLinkCommon.h 保持一致)
@@ -103,7 +118,7 @@ def hexdump(data: bytes, max_len=4096):
 # 配置
 # ---------------------------------------------------------------------------
 DEFAULT_CONFIG = {
-    "server": {"host": "0.0.0.0", "port": 8765},
+    "server": {"host": "0.0.0.0", "port": 8765, "open_browser": True},
     "driver": {"control_device": r"\\.\CommLinkCtl", "poll_interval_ms": 20, "read_chunk": 65536},
     "board": {
         "enabled": False,
@@ -315,6 +330,140 @@ class DriverClient:
 
 
 # ---------------------------------------------------------------------------
+# 驱动安装管理:把 install_pnp.bat 的操作封装成可编程调用
+#   (exe 已通过 UAC manifest 提权,进程本身就是管理员)
+# ---------------------------------------------------------------------------
+class DriverManager:
+    SVC = "CommLinkPnp"
+
+    def __init__(self, driver_dir):
+        self.dir = driver_dir
+
+    def files(self):
+        names = ["CommLinkPnp.sys", "CommLinkPnp.inf", "CommLinkPnp.cat",
+                 "CommLinkTest.cer", "mkroot.exe"]
+        return {n: os.path.join(self.dir, n) for n in names}
+
+    def missing_files(self):
+        return [n for n, p in self.files().items() if not os.path.isfile(p)]
+
+    @staticmethod
+    def is_admin():
+        try:
+            return ctypes.windll.shell32.IsUserAnAdmin() != 0
+        except Exception:
+            return False
+
+    def _run(self, args, timeout=60):
+        try:
+            p = subprocess.run(args, capture_output=True, text=True,
+                               creationflags=CREATE_NO_WINDOW, timeout=timeout)
+            return p.returncode, (p.stdout or "") + (p.stderr or "")
+        except FileNotFoundError:
+            return -1, f"命令不存在: {args[0]}"
+        except Exception as e:
+            return -1, str(e)
+
+    def testsigning_on(self):
+        rc, out = self._run(["bcdedit", "/enum", "{current}"])
+        for line in out.splitlines():
+            if "testsigning" in line.lower():
+                return "yes" in line.lower()
+        return False
+
+    def set_testsigning(self, on):
+        if not self.is_admin():
+            return False, False, "没有管理员权限"
+        rc, out = self._run(["bcdedit", "/set", "testsigning", "on" if on else "off"])
+        ok = rc == 0
+        return ok, (ok and on), (out.strip() or ("ok" if ok else "failed"))
+
+    def service_running(self):
+        rc, out = self._run(["sc", "query", self.SVC])
+        return "RUNNING" in out.upper()
+
+    def device_present(self):
+        rc, out = self._run(["pnputil", "/enum-devices", "/class", "Ports"])
+        return "CommLink" in out
+
+    def get_com_port(self):
+        rc, out = self._run(["reg", "query",
+                             rf"HKLM\SYSTEM\CurrentControlSet\Services\{self.SVC}\Parameters",
+                             "/v", "ComPort"])
+        m = re.search(r"ComPort\s+REG_DWORD\s+0x([0-9a-fA-F]+)", out)
+        return int(m.group(1), 16) if m else None
+
+    def status(self):
+        return {
+            "admin": self.is_admin(),
+            "testsigning": self.testsigning_on(),
+            "service_running": self.service_running(),
+            "device_present": self.device_present(),
+            "com_port": self.get_com_port(),
+            "missing_files": self.missing_files(),
+        }
+
+    def set_com(self, com):
+        if not (1 <= com <= 255):
+            return False, "COM 号须在 1-255"
+        if not self.is_admin():
+            return False, "没有管理员权限"
+        rc, out = self._run(["reg", "add",
+                             rf"HKLM\SYSTEM\CurrentControlSet\Services\{self.SVC}\Parameters",
+                             "/v", "ComPort", "/t", "REG_DWORD", "/d", str(com), "/f"])
+        return rc == 0, (out.strip() or ("ok" if rc == 0 else "failed"))
+
+    def install(self, com):
+        """返回 (ok, need_reboot, steps[])。"""
+        steps = []
+        def add(ok, msg):
+            steps.append({"ok": bool(ok), "msg": msg})
+        if not self.is_admin():
+            add(False, "没有管理员权限(请以管理员身份运行 CommLink.exe)")
+            return False, False, steps
+        missing = self.missing_files()
+        if missing:
+            add(False, "缺少内嵌文件: " + ", ".join(missing))
+            return False, False, steps
+        if not (1 <= com <= 255):
+            add(False, "COM 号须在 1-255")
+            return False, False, steps
+
+        f = self.files()
+        if not self.testsigning_on():
+            add(self.set_testsigning(True)[0], "开启测试签名模式 (bcdedit)")
+            add(True, "⚠ 需要重启电脑;重启后再次点'一键生成串口'即可完成安装")
+            return False, True, steps
+        add(True, "测试签名模式已开启")
+
+        for store in ("ROOT", "TrustedPublisher"):
+            rc, out = self._run(["certutil", "-addstore", "-f", store, f["CommLinkTest.cer"]])
+            add(rc == 0, f"导入证书到 {store}" + ("" if rc == 0 else f" : {out[-120:]}"))
+
+        self.set_com(com)
+        add(True, f"写入串口号 COM{com}")
+
+        rc, out = self._run([f["mkroot.exe"], "install", f["CommLinkPnp.inf"]], timeout=120)
+        add(rc == 0, "安装驱动并创建设备节点" + ("" if rc == 0 else f" : {out[-200:]}"))
+        if rc == 0 and out.strip():
+            add(True, out.strip()[-200:])
+
+        self.set_com(com)
+        add(True, "完成。请在设备管理器 端口(COM和LPT) 查看")
+        return rc == 0, False, steps
+
+    def uninstall(self):
+        if not self.is_admin():
+            return False, [{"ok": False, "msg": "没有管理员权限"}]
+        f = self.files()
+        if not os.path.isfile(f["mkroot.exe"]):
+            return False, [{"ok": False, "msg": "未找到 mkroot.exe"}]
+        rc, out = self._run([f["mkroot.exe"], "uninstall"], timeout=60)
+        return rc == 0, [{"ok": rc == 0, "msg": (out.strip()[-300:] or
+                          ("已移除设备节点" if rc == 0 else "失败"))}]
+
+
+# ---------------------------------------------------------------------------
 # 板子通信接口(预留):后续实现物理串口协议时只需替换此类
 # ---------------------------------------------------------------------------
 class BoardTransport:
@@ -388,6 +537,7 @@ class AppCore:
         self.filter = FilterEngine(cfg)
         self.logger = Logger(cfg)
         self.driver = DriverClient(cfg)
+        self.driver_mgr = DriverManager(DRIVER_DIR)
         self.board = BoardTransport(cfg, on_data=self.on_board_data)
         self.history = []  # list of dict
         self.history_lock = threading.Lock()
@@ -508,6 +658,17 @@ class AppCore:
         self.board.stop()
         self.driver.close()
 
+    def reconnect_driver(self):
+        """安装驱动后调用:关闭旧句柄并重新打开控制设备。"""
+        self.driver.close()
+        try:
+            self.driver.open()
+            self.driver_ok = True
+            return True, "驱动已连接"
+        except Exception as e:
+            self.driver_ok = False
+            return False, str(e)
+
     def get_status(self):
         st = {"driver_ok": self.driver_ok, "stats": dict(self.stats)}
         if self.driver_ok:
@@ -567,6 +728,12 @@ class WebHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/ping":
             self._send_json({"ok": True, "time": now_str()})
+            return
+        if path == "/api/driver/status":
+            try:
+                self._send_json({"ok": True, "data": self.core.driver_mgr.status()})
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)}, 500)
             return
 
         # 静态文件
@@ -642,6 +809,57 @@ class WebHandler(BaseHTTPRequestHandler):
                 if self.core.driver_ok:
                     self.core.driver.purge()
                 self._send_json({"ok": True})
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)}, 500)
+            return
+
+        if path == "/api/driver/install":
+            try:
+                com = int(payload.get("com", 8))
+                ok, need_reboot, steps = self.core.driver_mgr.install(com)
+                reconnect = False
+                if ok and not need_reboot:
+                    time.sleep(1.5)
+                    reconnect, msg = self.core.reconnect_driver()
+                    steps.append({"ok": reconnect, "msg": "连接驱动: " + msg})
+                self._send_json({"ok": ok, "need_reboot": need_reboot, "steps": steps,
+                                 "driver_connected": self.core.driver_ok})
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)}, 500)
+            return
+
+        if path == "/api/driver/uninstall":
+            try:
+                ok, steps = self.core.driver_mgr.uninstall()
+                self.core.driver_ok = False
+                self.core.driver.close()
+                self._send_json({"ok": ok, "steps": steps})
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)}, 500)
+            return
+
+        if path == "/api/driver/com":
+            try:
+                com = int(payload.get("com", 8))
+                ok, msg = self.core.driver_mgr.set_com(com)
+                self._send_json({"ok": ok, "msg": msg})
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)}, 500)
+            return
+
+        if path == "/api/driver/testsigning":
+            try:
+                on = bool(payload.get("on", True))
+                ok, need_reboot, msg = self.core.driver_mgr.set_testsigning(on)
+                self._send_json({"ok": ok, "need_reboot": need_reboot, "msg": msg})
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)}, 500)
+            return
+
+        if path == "/api/driver/reconnect":
+            try:
+                ok, msg = self.core.reconnect_driver()
+                self._send_json({"ok": ok, "msg": msg})
             except Exception as e:
                 self._send_json({"ok": False, "error": str(e)}, 500)
             return
@@ -748,7 +966,21 @@ def run_http_server(core: AppCore, host, port):
         loop.call_soon_threadsafe(loop.stop)
 
 
+def _redirect_output_to_file():
+    """打包成无窗口 exe 后,把 stdout/stderr 写入 exe 同目录的 runtime.log,便于排查。"""
+    if not FROZEN:
+        return
+    try:
+        log_path = os.path.join(BASE_DIR, "runtime.log")
+        f = open(log_path, "a", encoding="utf-8", buffering=1)
+        sys.stdout = f
+        sys.stderr = f
+    except Exception:
+        pass
+
+
 def main():
+    _redirect_output_to_file()
     print("=" * 60)
     print(" CommLink Server - 虚拟串口桥接服务")
     print("=" * 60)
@@ -758,6 +990,19 @@ def main():
     core.start()
     host = cfg["server"]["host"]
     port = int(cfg["server"]["port"])
+
+    # 启动后自动打开浏览器(打包成 exe 时用户体验:双击即用)
+    def open_browser_later():
+        time.sleep(1.2)
+        try:
+            webbrowser.open(f"http://127.0.0.1:{port}/")
+            print(f"[UI] 已打开浏览器: http://127.0.0.1:{port}/")
+        except Exception as e:
+            print(f"[WARN] 自动打开浏览器失败: {e}")
+    if cfg.get("server", {}).get("open_browser", True):
+        threading.Thread(target=open_browser_later, daemon=True).start()
+
+    print(f"[提示] 若浏览器未自动打开,请手动访问: http://127.0.0.1:{port}/")
     try:
         run_http_server(core, host, port)
     finally:

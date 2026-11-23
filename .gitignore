@@ -12,6 +12,12 @@ driver/_pnp_stage/
 # 编译日志
 driver/build_log.txt
 driver/pnp_build_log.txt
+exe_build_log.txt
+
+# 打包产物
+dist/
+build/
+*.spec.bak
 
 # Python 缓存
 __pycache__/
