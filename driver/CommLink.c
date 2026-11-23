@@ -18,9 +18,13 @@
 --*/
 
 #include <ntddk.h>
+#include <ntddser.h>
 #include "CommLinkCommon.h"
 
 #define COMMLINK_TAG  'KNLC'
+
+// 未文档化的内核导出:事件对象类型,供 ObReferenceObjectByHandle 使用
+extern POBJECT_TYPE *ExEventObjectType;
 
 // ---------------------------------------------------------------------------
 // 数据结构
@@ -90,6 +94,32 @@ static DRIVER_DISPATCH CL_Flush;
 static DRIVER_UNLOAD CL_Unload;
 
 static VOID CL_CancelPendingReads(PDEVICE_EXTENSION Shared);
+
+// ---------------------------------------------------------------------------
+// 工具:内核模式不能调用 CRT 的 swprintf,手动把 COM 号拼进符号链接名
+// ---------------------------------------------------------------------------
+static VOID
+BuildComSymbolicName(PWCHAR Buf, ULONG Port)
+{
+    static const WCHAR prefix[] = L"\\DosDevices\\COM";
+    ULONG i, n, digits[12], t = 0;
+
+    for (i = 0; prefix[i] != L'\0'; i++) {
+        Buf[i] = prefix[i];
+    }
+    n = i;
+    if (Port == 0) {
+        digits[t++] = 0;
+    }
+    while (Port > 0) {
+        digits[t++] = Port % 10;
+        Port /= 10;
+    }
+    while (t > 0) {
+        Buf[n++] = (WCHAR)(L'0' + digits[--t]);
+    }
+    Buf[n] = L'\0';
+}
 
 // ---------------------------------------------------------------------------
 // 环形缓冲 (调用者持有 Ring->Lock, IRQL <= DISPATCH_LEVEL)
@@ -625,7 +655,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     }
     g_Global.ComDevice = comDev;
 
-    swprintf(Shared->ComSymbolicBuf, L"\\DosDevices\\COM%u", g_Global.ComPortNumber);
+    BuildComSymbolicName(Shared->ComSymbolicBuf, g_Global.ComPortNumber);
     RtlInitUnicodeString(&symbolic, Shared->ComSymbolicBuf);
     status = IoCreateSymbolicLink(&symbolic, &comName);
     if (!NT_SUCCESS(status)) goto fail;

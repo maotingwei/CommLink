@@ -21,6 +21,14 @@ jobs:
         working-directory: ./driver
         run: ./build_driver.ps1
 
+      - name: 上传编译日志(无论成功失败)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CommLink-build-log
+          path: driver/build_log.txt
+          if-no-files-found: warn
+
       - name: 上传驱动产物
         uses: actions/upload-artifact@v4
         with:
